@@ -44,30 +44,41 @@ def process_analysis(job_id: str, query: str, file_path: str, filename: str):
 
 if __name__ == "__main__":
     # Runner: prefer RQ worker if Redis available; otherwise poll DB for queued jobs.
-    try:
-        import redis
-        from rq import Worker, Queue, Connection
+    # On Windows, RQ worker may attempt to use `fork` which is unsupported.
+    # Fall back to DB-polling on Windows to ensure the worker runs reliably.
+    if os.name == "nt":
+        print("Windows detected — RQ worker may be unsupported. Using DB polling fallback.")
+    else:
+        try:
+            import redis
+            from rq import Worker, Queue, Connection
 
-        REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-        conn = redis.from_url(REDIS_URL)
-        with Connection(conn):
-            q = Queue("analyze")
-            w = Worker([q])
-            w.work()
-    except Exception:
-        # Fallback: simple DB polling loop to process queued jobs synchronously
-        import time
-        print("Redis not available or RQ failed — falling back to DB polling worker")
-        while True:
-            try:
-                session = SessionLocal()
-                rec = session.query(AnalysisResult).filter(AnalysisResult.status == 'queued').order_by(AnalysisResult.created_at).first()
-                if rec:
-                    print(f"Processing queued job {rec.id}")
-                    process_analysis(rec.id, rec.query, rec.file_path, rec.filename)
-                else:
-                    time.sleep(2)
-            except KeyboardInterrupt:
-                break
-            except Exception:
+            REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+            conn = redis.from_url(REDIS_URL)
+            with Connection(conn):
+                q = Queue("analyze")
+                w = Worker([q])
+                w.work()
+            # If we reach here, the RQ worker started and will run until stopped.
+        except Exception as e:
+            # If RQ/Redis initialization fails, log the exception and fall back to DB polling
+            import traceback
+            print("RQ worker initialization failed — falling back to DB polling worker")
+            print(str(e))
+            traceback.print_exc()
+    # Fallback: simple DB polling loop to process queued jobs synchronously
+    import time
+    print("Starting DB-polling worker loop")
+    while True:
+        try:
+            session = SessionLocal()
+            rec = session.query(AnalysisResult).filter(AnalysisResult.status == 'queued').order_by(AnalysisResult.created_at).first()
+            if rec:
+                print(f"Processing queued job {rec.id}")
+                process_analysis(rec.id, rec.query, rec.file_path, rec.filename)
+            else:
                 time.sleep(2)
+        except KeyboardInterrupt:
+            break
+        except Exception:
+            time.sleep(2)
