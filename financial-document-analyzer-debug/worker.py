@@ -43,13 +43,31 @@ def process_analysis(job_id: str, query: str, file_path: str, filename: str):
 
 
 if __name__ == "__main__":
-    # Simple runner to process jobs from RQ 'analyze' queue if Redis is available.
-    import redis
-    from rq import Worker, Queue, Connection
+    # Runner: prefer RQ worker if Redis available; otherwise poll DB for queued jobs.
+    try:
+        import redis
+        from rq import Worker, Queue, Connection
 
-    REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-    conn = redis.from_url(REDIS_URL)
-    with Connection(conn):
-        q = Queue("analyze")
-        w = Worker([q])
-        w.work()
+        REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+        conn = redis.from_url(REDIS_URL)
+        with Connection(conn):
+            q = Queue("analyze")
+            w = Worker([q])
+            w.work()
+    except Exception:
+        # Fallback: simple DB polling loop to process queued jobs synchronously
+        import time
+        print("Redis not available or RQ failed — falling back to DB polling worker")
+        while True:
+            try:
+                session = SessionLocal()
+                rec = session.query(AnalysisResult).filter(AnalysisResult.status == 'queued').order_by(AnalysisResult.created_at).first()
+                if rec:
+                    print(f"Processing queued job {rec.id}")
+                    process_analysis(rec.id, rec.query, rec.file_path, rec.filename)
+                else:
+                    time.sleep(2)
+            except KeyboardInterrupt:
+                break
+            except Exception:
+                time.sleep(2)

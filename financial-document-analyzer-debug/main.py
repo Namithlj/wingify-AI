@@ -3,8 +3,6 @@ import os
 import uuid
 import asyncio
 
-import redis
-import rq
 from db import init_db, AnalysisResult, SessionLocal
 from core import run_crew
 from agents import financial_analyst
@@ -18,10 +16,12 @@ init_db()
 # Redis / RQ setup (used for job queue). Configure `REDIS_URL` in env to change.
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 try:
+    import redis
+    import rq
     redis_conn = redis.from_url(REDIS_url := REDIS_URL)
     queue = rq.Queue("analyze", connection=redis_conn)
 except Exception:
-    # If Redis isn't available, fall back to None and process synchronously
+    # If Redis/rq isn't installed or available, fall back to None and process synchronously
     redis_conn = None
     queue = None
 
