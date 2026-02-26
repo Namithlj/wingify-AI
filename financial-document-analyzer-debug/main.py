@@ -6,7 +6,8 @@ import asyncio
 from db import init_db, AnalysisResult, SessionLocal
 from core import run_crew
 from agents import financial_analyst
-from task import analyze_financial_document
+# Import the task module symbol under a different name to avoid shadowing the route function
+from task import analyze_financial_document as task_analyze_financial_document
 
 app = FastAPI(title="Financial Document Analyzer")
 

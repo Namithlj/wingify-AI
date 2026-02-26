@@ -1,105 +1,87 @@
-# Financial Document Analyzer - Debug Assignment
+# Financial Document Analyzer — Final (debugged)
 
-This repository contains a financial document analysis system built with CrewAI agents. I fixed deterministic bugs, improved prompt/task definitions, and added bonus features (Redis queue + SQLite persistence) while keeping the project lightweight and runnable.
+This is a debugged, runnable version of the Financial Document Analyzer. The repository includes deterministic bug fixes, safer agent/task prompts, a lightweight synchronous fallback for environments without LLMs, and optional asynchronous processing using Redis + RQ. Results persist to a local SQLite database.
 
-## What I fixed
+Highlights
+ - Deterministic fixes to prevent runtime import errors and hallucination-prone prompts.
+ - Optional background processing via Redis + RQ (fallback to synchronous/DB polling if Redis unavailable).
+ - SQLite persistence (`results.db`) for job records and results.
 
-- agents.py
-  - Replaced broken `llm = llm` initialization that caused an import error. Agents now have safe, concise role/goal/backstory text and `llm` is left unset by default.
-- tools.py
-  - Fixed undefined `Pdf` by importing a PDF loader or providing a minimal fallback when `langchain` is not available. Cleaned whitespace handling in the PDF reader.
-- task.py
-  - Rewrote task descriptions and expected outputs to avoid hallucination-prone instructions and to produce structured, useful outputs.
-- main.py
-  - Fixed file save/cleanup flow and added a robust API handler for `/analyze`.
+Quick start (recommended)
 
-## Bonus features implemented
+1. Install Python dependencies:
 
-- Queue worker: Redis + RQ support. If `REDIS_URL` is configured and Redis is running, the API enqueues jobs and `worker.py` processes them asynchronously.
-- Database: SQLite persistence using SQLAlchemy; results are stored in `results.db` in table `analysis_results`.
-
-These features are implemented in `worker.py`, `db.py`, and `main.py`.
-
-## Setup (minimal)
-
-1. Create a virtualenv and activate it.
-
-```sh
+```bash
 python -m venv .venv
 # Windows
 .venv\Scripts\activate
 # macOS / Linux
 source .venv/bin/activate
-```
-
-2. Install dependencies:
-
-```sh
 pip install -r requirements.txt
 ```
 
-3. (Optional) Start Redis for asynchronous processing:
+2. (Recommended) Start Redis via Docker Compose (provided):
 
-```sh
-# Use Docker (recommended for portability)
-docker run -p 6379:6379 redis:7
+```bash
+docker compose up -d redis
 ```
 
-4. Start the API server:
+3. Start the API server (from repo root):
 
-```sh
+```bash
 python -m uvicorn main:app --app-dir financial-document-analyzer-debug --reload
 ```
 
-5. (Optional) Start the worker in another terminal:
+4. (Recommended) Start the worker in another terminal so jobs are processed asynchronously:
 
-```sh
+```bash
 python financial-document-analyzer-debug/worker.py
 ```
 
-## API
+Files and behavior
+- `main.py` — FastAPI server. POST `/analyze` accepts a PDF and optional `query`. It saves the upload to `data/`, creates a DB record, then tries to enqueue the job to Redis. If Redis/RQ isn't available, the request runs synchronously (or worker fallback will poll the DB).
+- `worker.py` — Job processor. Prefers Redis/RQ; falls back to a DB-polling loop if Redis unavailable.
+- `db.py` — SQLAlchemy models and `init_db()` to create `results.db`.
+- `tools.py` — PDF reader tool with a safe fallback if `langchain` isn't installed.
+- `agents.py`, `task.py` — Sanitized agents and tasks to reduce hallucinations.
 
-- GET /
-  - Health check.
-  - Response: {"message": "Financial Document Analyzer API is running"}
+Testing the API
 
-- POST /analyze
-  - Multipart form-data: `file` (PDF upload), `query` (form string, optional)
-  - Saves uploaded file to `data/`, creates a DB record and either enqueues a job (if Redis available) or runs synchronously.
-  - Returns `{ status: 'queued', job_id: <id> }` when queued, or `{ status: 'finished', job_id: <id>, analysis: <result> }` when processed synchronously.
+Health check:
 
-Example (curl):
-
-```sh
-curl -X POST "http://127.0.0.1:8000/analyze" -F "file=@data/sample.pdf" -F "query=Analyze this"
+```bash
+curl http://127.0.0.1:8000/
+# -> {"message":"Financial Document Analyzer API is running"}
 ```
 
-- GET /result/{job_id}
-  - Returns DB record for the job id: status, result, filename, timestamps.
+Upload and analyze (example):
 
-## Notes and constraints
+```bash
+curl -X POST "http://127.0.0.1:8000/analyze" -F "file=@data/sample.pdf" -F "query=Quick demo"
+```
 
-- The code expects `crewai` to be installed for full agent/LLM behavior. I did not integrate any external LLM into the project; `llm` is intentionally left unset. This matches the assignment requirement to debug the repo (deterministic fixes + prompt improvements) without heavy integration.
-- The queued worker and DB persistence are implemented to satisfy bonus requirements.
+If Redis is running and the worker is active, `/analyze` returns `{ status: "queued", job_id: <id> }`. Otherwise, it returns `{ status: "finished", job_id: <id>, analysis: <result> }` after synchronous processing.
 
-## Files changed (high level)
+Retrieve a result:
 
-- `agents.py` — sanitized prompts and fixed LLM initialization
-- `tools.py` — fixed PDF loader usage and text cleaning
-- `task.py` — rewritten tasks and outputs
-- `main.py` — API handler fixes, DB enqueue logic
-- `db.py` — SQLAlchemy models and init
-- `worker.py` — RQ-compatible worker job and CLI worker runner
+```bash
+curl http://127.0.0.1:8000/result/<job_id>
+```
 
-## Next steps (optional)
+Notes and constraints
+- This project intentionally does not require any third-party LLM API keys. The `llm` slot in agents is left unset; the repo includes small local stubs (used for offline testing) rather than integrating a live LLM.
+- If you want full CrewAI behavior, install the real `crewai` package and any associated credentials, then replace the local stubs.
 
-- Replace `crewai` references with the real Crew.ai package and configure credentials when available.
-- Add unit tests around `worker.process_analysis` and `tools.FinancialDocumentTool.read_data_tool`.
+Docker
+- `docker-compose.yml` includes a `redis` service to run Redis quickly. Optionally you can add an `app` service to containerize the FastAPI server and worker.
 
----
+What I changed and why
+- Fixed missing/unsafe imports and added guarded fallbacks for `dotenv` and `langchain`.
+- Sanitized agent backstories and task instructions to produce structured outputs and avoid hallucinations.
+- Added DB persistence and a worker with Redis support and a DB-poll fallback so the project runs even without external services.
 
-If you want, I can now:
-- Run an end-to-end smoke test on your machine (I can start server+worker and POST `data/sample.pdf`).
-- Prepare a clean ZIP / GitHub-ready commit with only the final files.
+Next steps (optional)
+- Replace local `crewai` stubs with the official package for production LLM usage.
+- Add unit tests for `tools.FinancialDocumentTool` and `worker.process_analysis`.
 
-Which should I do next?
+If you'd like, I will now push these final changes to the remote repository and create a clean release branch or tag.

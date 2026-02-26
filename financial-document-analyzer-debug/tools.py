@@ -1,6 +1,11 @@
 ## Importing libraries and files
 import os
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv  # type: ignore[reportMissingImports]
+except Exception:
+    def load_dotenv(*a, **k):
+        return None
+
 load_dotenv()
 
 from crewai_tools import tools
@@ -8,7 +13,7 @@ from crewai_tools.tools.serper_dev_tool import SerperDevTool
 
 # Try to use langchain's PyPDFLoader if available; otherwise provide a minimal fallback
 try:
-    from langchain.document_loaders import PyPDFLoader as Pdf
+    from langchain.document_loaders import PyPDFLoader as Pdf  # type: ignore[reportMissingImports]
 except Exception:
     class _PdfPage:
         def __init__(self, content):

@@ -1,6 +1,11 @@
 ## Importing libraries and files
 import os
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv  # type: ignore[reportMissingImports]
+except Exception:
+    def load_dotenv(*a, **k):
+        return None
+
 load_dotenv()
 
 from crewai.agents import Agent
